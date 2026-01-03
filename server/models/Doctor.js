@@ -47,10 +47,8 @@ const doctorSchema = new mongoose.Schema({
         trim: true
     },
     hospitalAddress: {
-        street: String,
-        city: String,
-        state: String,
-        pincode: String
+        type: String,
+        default: 'N/A'
     },
 
     // Document Uploads (Cloudinary URLs)
@@ -118,14 +116,13 @@ const doctorSchema = new mongoose.Schema({
 });
 
 // Hash password before saving
-doctorSchema.pre('save', async function (next) {
+doctorSchema.pre('save', async function () {
     if (!this.isModified('password')) {
-        return next();
+        return;
     }
 
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
-    next();
 });
 
 // Method to compare password

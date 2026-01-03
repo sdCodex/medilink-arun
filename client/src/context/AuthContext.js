@@ -27,10 +27,11 @@ export const AuthProvider = ({ children }) => {
 
                     const res = await API.get(endpoint);
                     if (res.data.success) {
-                        setUser(res.data.user || res.data.doctor || res.data.admin);
+                        const verifiedUser = res.data.user || res.data.doctor || res.data.admin;
+                        setUser(verifiedUser);
                         // Update stored data
                         localStorage.setItem('user', JSON.stringify({
-                            ...(res.data.user || res.data.doctor || res.data.admin),
+                            ...verifiedUser,
                             role: parsedUser.role
                         }));
                     }
@@ -49,7 +50,8 @@ export const AuthProvider = ({ children }) => {
         try {
             const res = await API.post(`/auth/login/${type}`, credentials);
             if (res.data.success) {
-                const userData = { ...res.data.user, role: type };
+                const verifiedUser = res.data.user || res.data.doctor || res.data.admin;
+                const userData = { ...verifiedUser, role: type };
                 localStorage.setItem('token', res.data.token);
                 localStorage.setItem('user', JSON.stringify(userData));
                 setUser(userData);
@@ -57,6 +59,42 @@ export const AuthProvider = ({ children }) => {
                 setIsAuthenticated(true);
                 return { success: true };
             }
+        } catch (error) {
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Login failed',
+                requiresOTP: error.response?.status === 403 && error.response?.data?.requiresOTP
+            };
+        }
+    };
+
+    const requestLoginOTP = async (data) => {
+        try {
+            const res = await API.post('/auth/request-login-otp', data);
+            return res.data;
+        } catch (error) {
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to send OTP'
+            };
+        }
+    };
+
+    const loginWithOTP = async (verifyData) => {
+        try {
+            const res = await API.post('/auth/login-with-otp', verifyData);
+            if (res.data.success) {
+                const type = verifyData.role;
+                const verifiedUser = res.data[type];
+                const userData = { ...verifiedUser, role: type };
+                localStorage.setItem('token', res.data.token);
+                localStorage.setItem('user', JSON.stringify(userData));
+                setUser(userData);
+                setRole(type);
+                setIsAuthenticated(true);
+                return { success: true };
+            }
+            return res.data;
         } catch (error) {
             return {
                 success: false,
@@ -107,7 +145,9 @@ export const AuthProvider = ({ children }) => {
             login,
             logout,
             register,
-            verifyOTP
+            verifyOTP,
+            requestLoginOTP,
+            loginWithOTP
         }}>
             {children}
         </AuthContext.Provider>

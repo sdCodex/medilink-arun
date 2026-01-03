@@ -11,6 +11,7 @@ import ProtectedRoute from './components/auth/ProtectedRoute';
 // Pages - Public
 import Home from './pages/public/Home';
 import EmergencyView from './pages/public/EmergencyView';
+import QRScanner from './pages/public/QRScanner';
 
 // Pages - User
 import UserLogin from './pages/user/UserLogin';
@@ -53,6 +54,7 @@ function App() {
               {/* Public Routes */}
               <Route path="/" element={<Home />} />
               <Route path="/emergency" element={<EmergencyView />} />
+              <Route path="/scan" element={<QRScanner />} />
               <Route path="/login" element={<UserLogin />} />
               <Route path="/register" element={<UserRegister />} />
               <Route path="/doctor/register" element={<DoctorRegister />} />

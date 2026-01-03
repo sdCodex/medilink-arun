@@ -9,9 +9,11 @@ import {
     CheckCircle2,
     Loader2,
     Lock,
-    Stethoscope
+    Stethoscope,
+    Camera
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate, Link } from 'react-router-dom';
 import API from '../../services/api';
 import { formatDate, cn } from '../../utils/helpers';
 
@@ -20,15 +22,22 @@ const EmergencyView = () => {
     const [loading, setLoading] = useState(false);
     const [patientData, setPatientData] = useState(null);
     const [error, setError] = useState(null);
+    const navigate = useNavigate();
 
-    const handleScan = async (e) => {
-        e.preventDefault();
-        if (!qrToken) return;
+    useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tokenFromUrl = urlParams.get('token');
+        if (tokenFromUrl) {
+            setQrToken(tokenFromUrl);
+            autoRetrieve(tokenFromUrl);
+        }
+    }, []);
 
+    const autoRetrieve = async (token) => {
         setLoading(true);
         setError(null);
         try {
-            const res = await API.post('/emergency/scan-qr', { token: qrToken });
+            const res = await API.post('/emergency/scan-qr', { token });
             if (res.data.success) {
                 setPatientData(res.data.data);
             }
@@ -37,6 +46,12 @@ const EmergencyView = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleScan = async (e) => {
+        if (e) e.preventDefault();
+        if (!qrToken) return;
+        autoRetrieve(qrToken);
     };
 
     return (
@@ -54,8 +69,27 @@ const EmergencyView = () => {
                     <motion.section
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="bg-white/5 backdrop-blur-xl rounded-[2.5rem] p-10 border border-white/10 shadow-2xl"
+                        className="bg-white/5 backdrop-blur-xl rounded-[2.5rem] p-10 border border-white/10 shadow-2xl space-y-8"
                     >
+                        <Link
+                            to="/scan"
+                            className="flex items-center justify-center gap-4 bg-green-600/10 text-green-500 border border-green-500/20 py-8 rounded-3xl hover:bg-green-600/20 transition-all group"
+                        >
+                            <div className="w-12 h-12 bg-green-500/20 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                                <Camera size={24} />
+                            </div>
+                            <div className="text-left">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-green-400">Step 1</p>
+                                <p className="text-lg font-black tracking-tight">Open QR Camera</p>
+                            </div>
+                        </Link>
+
+                        <div className="relative flex items-center gap-4">
+                            <div className="h-px bg-white/5 flex-1" />
+                            <span className="text-[10px] font-black text-slate-600 uppercase">OR MANUALLY ENTER</span>
+                            <div className="h-px bg-white/5 flex-1" />
+                        </div>
+
                         <form onSubmit={handleScan} className="space-y-6">
                             <div>
                                 <label className="block text-[10px] font-black uppercase text-slate-500 tracking-widest mb-4">Input QR Secure Token</label>

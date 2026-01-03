@@ -57,7 +57,37 @@ const sendSMS = async (mobile, otp) => {
         };
     } catch (error) {
         console.error(`❌ SMS Error to ${mobile}:`, error.message);
-        throw new Error(`Failed to send SMS: ${error.message}`);
+        return { success: false, error: error.message };
+    }
+};
+
+/**
+ * Send OTP via WhatsApp
+ */
+const sendWhatsApp = async (mobile, otp) => {
+    try {
+        if (!twilioClient || !process.env.TWILIO_WHATSAPP_NUMBER) {
+            console.log(`📱 [DEV MODE] WhatsApp to ${mobile}: Your MedLink OTP is ${otp}. Valid for 5 minutes.`);
+            return {
+                success: true,
+                message: 'OTP logged (development mode - Twilio/WhatsApp not configured)'
+            };
+        }
+
+        const message = await twilioClient.messages.create({
+            body: `Your MedLink OTP is ${otp}. Valid for 5 minutes. Do not share this code.`,
+            from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+            to: `whatsapp:${mobile}`
+        });
+
+        console.log(`✅ WhatsApp sent to ${mobile}: ${message.sid}`);
+        return {
+            success: true,
+            messageId: message.sid
+        };
+    } catch (error) {
+        console.error(`❌ WhatsApp Error to ${mobile}:`, error.message);
+        return { success: false, error: error.message };
     }
 };
 
@@ -159,9 +189,10 @@ const sendOTP = async ({ email, mobile, purpose, recipientId, recipientModel, na
             maxAttempts: parseInt(process.env.OTP_MAX_ATTEMPTS) || 3
         });
 
-        // Send OTP via SMS and Email concurrently
+        // Send OTP via SMS, WhatsApp and Email concurrently
         const results = await Promise.allSettled([
             sendSMS(mobile, otp),
+            sendWhatsApp(mobile, otp),
             sendEmail(email, otp, name)
         ]);
 
@@ -169,7 +200,7 @@ const sendOTP = async ({ email, mobile, purpose, recipientId, recipientModel, na
         const notifications = [];
 
         // SMS Notification
-        if (results[0].status === 'fulfilled') {
+        if (results[0].status === 'fulfilled' && results[0].value.success) {
             notifications.push({
                 recipient: { model: recipientModel, id: recipientId, mobile },
                 type: 'sms',
@@ -185,12 +216,33 @@ const sendOTP = async ({ email, mobile, purpose, recipientId, recipientModel, na
                 content: `Your MedLink OTP is ${otp}`,
                 purpose: 'otp',
                 status: 'failed',
-                failureReason: results[0].reason?.message
+                failureReason: results[0].status === 'fulfilled' ? results[0].value.error : results[0].reason?.message
+            });
+        }
+
+        // WhatsApp Notification
+        if (results[1].status === 'fulfilled' && results[1].value.success) {
+            notifications.push({
+                recipient: { model: recipientModel, id: recipientId, mobile },
+                type: 'whatsapp',
+                content: `Your MedLink OTP is ${otp}`,
+                purpose: 'otp',
+                status: 'sent',
+                sentAt: new Date()
+            });
+        } else {
+            notifications.push({
+                recipient: { model: recipientModel, id: recipientId, mobile },
+                type: 'whatsapp',
+                content: `Your MedLink OTP is ${otp}`,
+                purpose: 'otp',
+                status: 'failed',
+                failureReason: results[1].status === 'fulfilled' ? results[1].value.error : results[1].reason?.message
             });
         }
 
         // Email Notification
-        if (results[1].status === 'fulfilled') {
+        if (results[2].status === 'fulfilled' && results[2].value.success) {
             notifications.push({
                 recipient: { model: recipientModel, id: recipientId, email },
                 type: 'email',
@@ -208,7 +260,7 @@ const sendOTP = async ({ email, mobile, purpose, recipientId, recipientModel, na
                 content: `Your MedLink OTP is ${otp}`,
                 purpose: 'otp',
                 status: 'failed',
-                failureReason: results[1].reason?.message
+                failureReason: results[2].status === 'fulfilled' ? results[2].value.error : results[2].reason?.message
             });
         }
 

@@ -9,11 +9,12 @@ import API from '../../services/api';
 const UserLogin = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { verifyOTP, login } = useAuth();
+    const { verifyOTP, login, requestLoginOTP, loginWithOTP } = useAuth();
 
     // Determine initial role from navigation state
     const [role, setRole] = useState(location.state?.role || 'user');
     const [step, setStep] = useState(1); // 1: Credentials, 2: OTP (if required)
+    const [loginMethod, setLoginMethod] = useState('password'); // 'password' or 'otp'
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
         email: '',
@@ -31,21 +32,36 @@ const UserLogin = () => {
         e.preventDefault();
         setLoading(true);
         try {
-            const res = await login({
-                email: formData.email,
-                password: formData.password
-            }, role);
+            if (loginMethod === 'password') {
+                const res = await login({
+                    email: formData.email,
+                    password: formData.password
+                }, role);
 
-            if (res.success) {
-                toast.success(`Welcome to ${role.charAt(0).toUpperCase() + role.slice(1)} Portal!`);
-                const path = role === 'admin' ? '/admin/dashboard' :
-                    role === 'doctor' ? '/doctor/dashboard' : '/dashboard';
-                navigate(path);
-            } else if (res.requiresOTP) {
-                toast.info('Verification required. OTP sent to your registered mobile/email.');
-                setStep(2);
+                if (res.success) {
+                    toast.success(`Welcome back to the portal!`);
+                    const path = role === 'admin' ? '/admin/dashboard' :
+                        role === 'doctor' ? '/doctor/dashboard' : '/dashboard';
+                    navigate(path);
+                } else if (res.requiresOTP) {
+                    toast.info('Verification required. OTP sent to your registered mobile/email.');
+                    setStep(2);
+                } else {
+                    toast.error(res.message);
+                }
             } else {
-                toast.error(res.message);
+                // Request OTP for login
+                const res = await requestLoginOTP({
+                    email: formData.email,
+                    role
+                });
+
+                if (res.success) {
+                    toast.success('OTP sent to your registered mobile/email.');
+                    setStep(2);
+                } else {
+                    toast.error(res.message);
+                }
             }
         } catch (error) {
             toast.error('An error occurred during login');
@@ -58,29 +74,47 @@ const UserLogin = () => {
         e.preventDefault();
         setLoading(true);
         try {
-            const res = await verifyOTP({
-                email: formData.email,
-                otp: formData.otp,
-                purpose: 'login'
-            });
-
-            if (res.success) {
-                // Try login again with same credentials, it should pass now
-                const loginRes = await login({
+            if (loginMethod === 'password') {
+                // Verification after password (for unverified accounts)
+                const res = await verifyOTP({
                     email: formData.email,
-                    password: formData.password
-                }, role);
+                    otp: formData.otp,
+                    purpose: 'login'
+                });
 
-                if (loginRes.success) {
-                    toast.success('Identity verified! Welcome back.');
+                if (res.success) {
+                    const loginRes = await login({
+                        email: formData.email,
+                        password: formData.password
+                    }, role);
+
+                    if (loginRes.success) {
+                        toast.success('Identity verified! Welcome back.');
+                        const path = role === 'admin' ? '/admin/dashboard' :
+                            role === 'doctor' ? '/doctor/dashboard' : '/dashboard';
+                        navigate(path);
+                    } else {
+                        toast.error(loginRes.message);
+                    }
+                } else {
+                    toast.error(res.message);
+                }
+            } else {
+                // Pure OTP login
+                const res = await loginWithOTP({
+                    email: formData.email,
+                    otp: formData.otp,
+                    role
+                });
+
+                if (res.success) {
+                    toast.success('Login successful!');
                     const path = role === 'admin' ? '/admin/dashboard' :
                         role === 'doctor' ? '/doctor/dashboard' : '/dashboard';
                     navigate(path);
                 } else {
-                    toast.error(loginRes.message);
+                    toast.error(res.message);
                 }
-            } else {
-                toast.error(res.message);
             }
         } catch (error) {
             toast.error('Verification failed');
@@ -153,8 +187,8 @@ const UserLogin = () => {
                                 key={r}
                                 onClick={() => handleRoleChange(r)}
                                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${role === r
-                                        ? 'bg-slate-900 text-white shadow-lg'
-                                        : 'text-slate-400 hover:text-slate-600'
+                                    ? 'bg-slate-900 text-white shadow-lg'
+                                    : 'text-slate-400 hover:text-slate-600'
                                     }`}
                             >
                                 {r.toUpperCase()}
@@ -162,11 +196,26 @@ const UserLogin = () => {
                         ))}
                     </div>
 
+                    <div className="flex justify-center gap-6 mb-8">
+                        <button
+                            onClick={() => { setLoginMethod('password'); setStep(1); }}
+                            className={`text-xs font-black uppercase tracking-widest pb-2 border-b-2 transition-all ${loginMethod === 'password' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                        >
+                            Password
+                        </button>
+                        <button
+                            onClick={() => { setLoginMethod('otp'); setStep(1); }}
+                            className={`text-xs font-black uppercase tracking-widest pb-2 border-b-2 transition-all ${loginMethod === 'otp' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                        >
+                            OTP Login
+                        </button>
+                    </div>
+
                     <h2 className="text-3xl font-black text-slate-900 mb-2">
                         {step === 1 ? currentRole.title : 'Security Check'}
                     </h2>
                     <p className="text-slate-500 text-sm">
-                        {step === 1 ? currentRole.subtitle : `Enter the verification code sent to your account`}
+                        {step === 1 ? (loginMethod === 'password' ? currentRole.subtitle : 'Login securely via OTP verification') : `Enter the verification code sent to your account`}
                     </p>
                 </div>
 
@@ -198,22 +247,28 @@ const UserLogin = () => {
                                     </div>
                                 </div>
 
-                                <div>
-                                    <label className="block text-xs font-black text-slate-700 mb-2 ml-1 uppercase tracking-wider">
-                                        Security Password
-                                    </label>
-                                    <div className="relative">
-                                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                        <input
-                                            type="password"
-                                            required
-                                            placeholder="••••••••"
-                                            className="input-field pl-12 bg-white/50 focus:bg-white"
-                                            value={formData.password}
-                                            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                                        />
-                                    </div>
-                                </div>
+                                {loginMethod === 'password' && (
+                                    <motion.div
+                                        initial={{ opacity: 0, height: 0 }}
+                                        animate={{ opacity: 1, height: 'auto' }}
+                                        exit={{ opacity: 0, height: 0 }}
+                                    >
+                                        <label className="block text-xs font-black text-slate-700 mb-2 ml-1 uppercase tracking-wider">
+                                            Security Password
+                                        </label>
+                                        <div className="relative">
+                                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                            <input
+                                                type="password"
+                                                required
+                                                placeholder="••••••••"
+                                                className="input-field pl-12 bg-white/50 focus:bg-white"
+                                                value={formData.password}
+                                                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                            />
+                                        </div>
+                                    </motion.div>
+                                )}
 
                                 <button
                                     type="submit"
