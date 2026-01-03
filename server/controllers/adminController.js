@@ -1,5 +1,6 @@
 const Doctor = require('../models/Doctor');
 const User = require('../models/User');
+const Admin = require('../models/Admin');
 const AuditLog = require('../models/AuditLog');
 const { createAuditLog } = require('../middleware/auditLogger');
 const { sendEmail } = require('../services/notificationService');
@@ -504,6 +505,28 @@ const getAuditLogs = async (req, res) => {
     }
 };
 
+const getProfile = async (req, res) => {
+    try {
+        const admin = await Admin.findById(req.user._id).select('-password');
+        if (!admin) {
+            return res.status(404).json({
+                success: false,
+                message: 'Admin not found'
+            });
+        }
+        res.status(200).json({
+            success: true,
+            admin
+        });
+    } catch (error) {
+        console.error('Get Admin Profile Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch profile'
+        });
+    }
+};
+
 module.exports = {
     getDashboardStats,
     getPendingDoctors,
@@ -512,5 +535,6 @@ module.exports = {
     revokeDoctor,
     getAllUsers,
     getAllDoctors,
-    getAuditLogs
+    getAuditLogs,
+    getProfile
 };

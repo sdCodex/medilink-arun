@@ -8,12 +8,16 @@ const {
     revokeDoctor,
     getAllUsers,
     getAllDoctors,
-    getAuditLogs
+    getAuditLogs,
+    getProfile
 } = require('../controllers/adminController');
 const { protect, requireAdmin } = require('../middleware/auth');
 
 // All routes require authentication and admin role
 router.use(protect, requireAdmin);
+
+// Profile
+router.get('/profile', getProfile);
 
 // Dashboard
 router.get('/dashboard', getDashboardStats);

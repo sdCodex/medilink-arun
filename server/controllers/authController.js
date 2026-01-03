@@ -122,11 +122,45 @@ const registerDoctor = async (req, res) => {
             });
         }
 
-        // Document URLs should be provided (uploaded via frontend to Cloudinary)
+        // Document URLs should be provided (uploaded via frontend to Cloudinary or sent as base64)
         if (!governmentId || !medicalCertificate) {
             return res.status(400).json({
                 success: false,
                 message: 'Please upload government ID and medical certificate'
+            });
+        }
+
+        // Upload documents to Cloudinary if they are base64
+        let govIdUrl = governmentId;
+        let medCertUrl = medicalCertificate;
+        let regCertUrl = registrationCertificate;
+
+        try {
+            if (governmentId && governmentId.startsWith('data:')) {
+                const uploadRes = await cloudinary.uploader.upload(governmentId, {
+                    folder: 'medilink/doctors/ids'
+                });
+                govIdUrl = uploadRes.secure_url;
+            }
+
+            if (medicalCertificate && medicalCertificate.startsWith('data:')) {
+                const uploadRes = await cloudinary.uploader.upload(medicalCertificate, {
+                    folder: 'medilink/doctors/certificates'
+                });
+                medCertUrl = uploadRes.secure_url;
+            }
+
+            if (registrationCertificate && registrationCertificate.startsWith('data:')) {
+                const uploadRes = await cloudinary.uploader.upload(registrationCertificate, {
+                    folder: 'medilink/doctors/registrations'
+                });
+                regCertUrl = uploadRes.secure_url;
+            }
+        } catch (uploadError) {
+            console.error('Document Upload Error:', uploadError);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to upload documents'
             });
         }
 
@@ -141,9 +175,9 @@ const registerDoctor = async (req, res) => {
             hospitalName,
             hospitalAddress,
             documents: {
-                governmentId,
-                medicalCertificate,
-                registrationCertificate
+                governmentId: govIdUrl,
+                medicalCertificate: medCertUrl,
+                registrationCertificate: regCertUrl
             }
         });
 
@@ -560,6 +594,149 @@ const loginAdmin = async (req, res) => {
     }
 };
 
+/**
+ * @desc    Request Login OTP
+ * @route   POST /api/auth/request-login-otp
+ * @access  Public
+ */
+const requestLoginOTP = async (req, res) => {
+    try {
+        const { email, mobile, role } = req.body;
+
+        if (!email && !mobile) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide email or mobile'
+            });
+        }
+
+        // Find user based on role
+        let user;
+        if (role === 'user') {
+            user = await User.findOne({ $or: [{ email }, { mobile }] });
+        } else if (role === 'doctor') {
+            user = await Doctor.findOne({ $or: [{ email }, { mobile }] });
+        } else if (role === 'admin') {
+            user = await Admin.findOne({ email });
+        }
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'Account not found. Please register first.'
+            });
+        }
+
+        // Send OTP
+        const otpResult = await sendOTP({
+            email: user.email,
+            mobile: user.mobile,
+            purpose: 'login',
+            recipientId: user._id,
+            recipientModel: role === 'user' ? 'User' : role === 'doctor' ? 'Doctor' : 'Admin',
+            name: user.name
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'OTP sent successfully',
+            otp: otpResult
+        });
+    } catch (error) {
+        console.error('Request Login OTP Error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to send OTP'
+        });
+    }
+};
+
+/**
+ * @desc    Login with OTP
+ * @route   POST /api/auth/login-with-otp
+ * @access  Public
+ */
+const loginWithOTP = async (req, res) => {
+    try {
+        const { email, mobile, otp, role } = req.body;
+
+        if (!otp) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide OTP'
+            });
+        }
+
+        // Verify OTP
+        const verification = await verifyOTP({ email, mobile, otp, purpose: 'login' });
+        if (!verification.success) {
+            return res.status(400).json(verification);
+        }
+
+        // Find user based on role
+        let user;
+        if (role === 'user') {
+            user = await User.findOne({ $or: [{ email }, { mobile }] });
+        } else if (role === 'doctor') {
+            user = await Doctor.findOne({ $or: [{ email }, { mobile }] });
+        } else if (role === 'admin') {
+            user = await Admin.findOne({ email });
+        }
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User no longer exists'
+            });
+        }
+
+        // Generate token
+        const token = generateToken(user._id, role);
+
+        // Audit log
+        await createAuditLog({
+            actorModel: role === 'user' ? 'User' : role === 'doctor' ? 'Doctor' : 'Admin',
+            actorId: user._id,
+            actorName: user.name,
+            actorEmail: user.email,
+            action: `${role}_login`,
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent'),
+            metadata: { method: 'otp' }
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Login successful',
+            token,
+            [role]: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                mobile: user.mobile,
+                role: user.role,
+                ...(role === 'doctor' ? {
+                    approvalStatus: user.approvalStatus,
+                    canAccessSystem: user.canAccessSystem()
+                } : {}),
+                ...(role === 'user' ? {
+                    isProfileComplete: user.isProfileComplete,
+                    healthCardGenerated: user.healthCardGenerated
+                } : {}),
+                ...(role === 'admin' ? {
+                    permissions: user.permissions
+                } : {})
+            }
+        });
+    } catch (error) {
+        console.error('Login with OTP Error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Login failed'
+        });
+    }
+};
+
 module.exports = {
     registerUser,
     registerDoctor,
@@ -567,5 +744,7 @@ module.exports = {
     resendOTP,
     loginUser,
     loginDoctor,
-    loginAdmin
+    loginAdmin,
+    requestLoginOTP,
+    loginWithOTP
 };

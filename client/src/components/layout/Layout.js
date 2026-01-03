@@ -16,6 +16,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { cn } from '../../utils/helpers';
 import { motion } from 'framer-motion';
+import Footer from './Footer';
 
 const Sidebar = ({ isOpen, toggleSidebar }) => {
     const { role, logout } = useAuth();
@@ -157,6 +158,7 @@ const Layout = ({ children }) => {
                         {children}
                     </div>
                 </main>
+                <Footer />
             </div>
         </div>
     );
